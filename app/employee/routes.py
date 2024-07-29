@@ -11,7 +11,7 @@ db = client['employee_database']
 employees = db['employees']
 
 
-@employee.route('/list', methods=['GET'])
+@employee.route('/read', methods=['GET'])
 def employee_list():
     if 'username' not in session:
         return jsonify({"error": "You need to log in first."}), 401
@@ -22,10 +22,16 @@ def employee_list():
     for emp in employees_data:
         emp['_id'] = str(emp['_id'])
 
-    return jsonify({"employees": employees_data, "is_admin": user_is_admin})
+        # Filter fields based on user type
+        if not user_is_admin:
+            emp.pop('joining_date', None)
+            emp.pop('status', None)
+            emp.pop('salary', None)
+
+    return jsonify({"employees": employees_data})
 
 
-@employee.route('/edit_employee/<employee_id>', methods=['POST'])
+@employee.route('/update_employee/<employee_id>', methods=['POST'])
 def edit_employee(employee_id):
     if 'username' not in session or not session.get('is_admin', False):
         return jsonify({"error": "You do not have permission to access this page."}), 403
@@ -88,4 +94,30 @@ def delete_employee(employee_id):
     return jsonify({"message": "Employee deleted successfully."})
 
 
+@employee.route('/search_employee', methods=['GET'])
+def search_employee():
+    if 'username' not in session:
+        return jsonify({"error": "You need to log in first."}), 401
 
+    query = {}
+    name = request.args.get('name')
+    designation = request.args.get('designation')
+    department = request.args.get('department')
+
+    if name:
+        query['name'] = {'$regex': name, '$options': 'i'}
+    if designation:
+        query['designation'] = {'$regex': designation, '$options': 'i'}
+    if department:
+        query['department'] = {'$regex': department, '$options': 'i'}
+
+    pipeline = [
+        {'$match': query}
+    ]
+
+    employees_data = list(employees.aggregate(pipeline))
+
+    for emp in employees_data:
+        emp['_id'] = str(emp['_id'])
+
+    return jsonify({"employees": employees_data})

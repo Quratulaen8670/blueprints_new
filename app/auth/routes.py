@@ -16,7 +16,7 @@ def index():
     return jsonify({"message": "Welcome! Please use /auth/signup or /auth/signin"})
 
 
-@auth.route('/SignIn', methods=['GET', 'POST'])
+@auth.route('/SignIn', methods=['POST'])
 def signin():
     data = request.json
     username_or_email = data.get('username')
@@ -36,14 +36,16 @@ def signin():
         return jsonify({"error": "Invalid username/email or password."}), 401
 
 
-@auth.route('/SignUp', methods=['GET', 'POST'])
+@auth.route('/SignUp', methods=['POST'])
 def signup():
     data = request.json
     username = data.get('username')
     email = data.get('email')
     password = data.get('Password')
     confirm_password = data.get('ConfirmPassword')
-    is_admin = username == 'admin'
+
+    # Set is_admin to True if the username is 'admin'
+    is_admin = username.lower() == 'admin'
 
     if not username or not email or not password or not confirm_password:
         return jsonify({"error": "All fields are required."}), 400
