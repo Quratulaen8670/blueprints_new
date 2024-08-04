@@ -10,6 +10,15 @@ client = MongoClient('mongodb://localhost:27017/')
 db = client['employee_database']
 employees = db['employees']
 
+from flask import Blueprint, request, jsonify, session
+from pymongo import MongoClient
+
+employee = Blueprint('employee', __name__)
+
+# Connect to MongoDB
+client = MongoClient('mongodb://localhost:27017/')
+db = client['employee_database']
+employees = db['employees']
 
 @employee.route('/read', methods=['GET'])
 def employee_list():
@@ -19,16 +28,23 @@ def employee_list():
     user_is_admin = session.get('is_admin', False)
     employees_data = list(employees.find())
 
-    for emp in employees_data:
+    def filter_employee_data(employee, is_admin):
+        if is_admin:
+            return employee
+        else:
+            return {
+                '_id': employee['_id'],
+                'name': employee.get('name'),
+                'designation': employee.get('designation'),
+                'department': employee.get('department')
+            }
+
+    filtered_employees_data = [filter_employee_data(emp, user_is_admin) for emp in employees_data]
+
+    for emp in filtered_employees_data:
         emp['_id'] = str(emp['_id'])
 
-        # Filter fields based on user type
-        if not user_is_admin:
-            emp.pop('joining_date', None)
-            emp.pop('status', None)
-            emp.pop('salary', None)
-
-    return jsonify({"employees": employees_data})
+    return jsonify({"employees": filtered_employees_data})
 
 
 @employee.route('/update_employee/<employee_id>', methods=['POST'])
@@ -99,11 +115,17 @@ def search_employee():
     if 'username' not in session:
         return jsonify({"error": "You need to log in first."}), 401
 
-    query = {}
+    # Retrieve query parameters
     name = request.args.get('name')
     designation = request.args.get('designation')
     department = request.args.get('department')
 
+    # Check if at least one parameter is provided
+    if not name and not designation and not department:
+        return jsonify({"error": "Please provide at least one search parameter (name, designation, or department)."}), 400
+
+    # Construct the query
+    query = {}
     if name:
         query['name'] = {'$regex': name, '$options': 'i'}
     if designation:
@@ -111,13 +133,18 @@ def search_employee():
     if department:
         query['department'] = {'$regex': department, '$options': 'i'}
 
+    # Create the aggregation pipeline
     pipeline = [
         {'$match': query}
     ]
 
+    # Execute the aggregation pipeline
     employees_data = list(employees.aggregate(pipeline))
 
+    # Convert ObjectId to string for JSON serialization
     for emp in employees_data:
         emp['_id'] = str(emp['_id'])
 
     return jsonify({"employees": employees_data})
+
+
