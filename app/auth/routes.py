@@ -1,4 +1,4 @@
-from flask import Blueprint, request, redirect, url_for, flash, session, jsonify
+from flask import Blueprint, request, session, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 import re
 from pymongo import MongoClient
@@ -71,9 +71,3 @@ def signup():
     users.insert_one(new_user)
     return jsonify({"message": "Account created successfully. Please log in."})
 
-
-@auth.route('/admin_dashboard')
-def admin_dashboard():
-    if 'username' not in session or not session.get('is_admin', False):
-        return jsonify({"error": "You do not have permission to access this page."}), 403
-    return jsonify({"message": "Welcome to the admin dashboard."})
