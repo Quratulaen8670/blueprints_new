@@ -1,7 +1,9 @@
-from flask import Blueprint, request, session, jsonify
+from flask import Blueprint, request, jsonify,session
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 import datetime
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from app.auth.decorators import admin_required
 
 employee = Blueprint('employee', __name__)
 
@@ -9,23 +11,13 @@ employee = Blueprint('employee', __name__)
 client = MongoClient('mongodb://localhost:27017/')
 db = client['employee_database']
 employees = db['employees']
-
-from flask import Blueprint, request, jsonify, session
-from pymongo import MongoClient
-
-employee = Blueprint('employee', __name__)
-
-# Connect to MongoDB
-client = MongoClient('mongodb://localhost:27017/')
-db = client['employee_database']
-employees = db['employees']
+users = db['users']
 
 @employee.route('/read', methods=['GET'])
+@jwt_required()
 def employee_list():
-    if 'username' not in session:
-        return jsonify({"error": "You need to log in first."}), 401
-
-    user_is_admin = session.get('is_admin', False)
+    current_user = get_jwt_identity()
+    user_is_admin = users.find_one({'username': current_user}).get('is_admin', False)
     employees_data = list(employees.find())
 
     def filter_employee_data(employee, is_admin):
@@ -47,7 +39,9 @@ def employee_list():
     return jsonify({"employees": filtered_employees_data})
 
 
+
 @employee.route('/update_employee/<employee_id>', methods=['POST'])
+@admin_required
 def edit_employee(employee_id):
     if 'username' not in session or not session.get('is_admin', False):
         return jsonify({"error": "You do not have permission to access this page."}), 403
@@ -75,7 +69,8 @@ def edit_employee(employee_id):
     return jsonify({"message": "Employee details updated successfully."})
 
 
-@employee.route('/create_employee', methods=['POST'])
+@employee.route('/create_employee', methods=['POST'], endpoint='create_employee')
+@admin_required
 def create_employee():
     if 'username' not in session or not session.get('is_admin', False):
         return jsonify({"error": "You do not have permission to access this page."}), 403
@@ -101,19 +96,17 @@ def create_employee():
     return jsonify({"message": "New employee created successfully.", "employee_id": str(result.inserted_id)})
 
 
-@employee.route('/delete_employee/<employee_id>', methods=['POST'])
+@employee.route('/delete_employee/<employee_id>', methods=['POST'],endpoint='delete_employee')
+@admin_required
 def delete_employee(employee_id):
-    if 'username' not in session or not session.get('is_admin', False):
-        return jsonify({"error": "You do not have permission to access this page."}), 403
-
     employees.delete_one({'_id': ObjectId(employee_id)})
     return jsonify({"message": "Employee deleted successfully."})
 
 
 @employee.route('/search_employee', methods=['GET'])
+@jwt_required()
 def search_employee():
-    if 'username' not in session:
-        return jsonify({"error": "You need to log in first."}), 401
+    current_user = get_jwt_identity()
 
     # Retrieve query parameters
     name = request.args.get('name')
