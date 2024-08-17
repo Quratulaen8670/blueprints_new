@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify,session
+from flask import Blueprint, request, jsonify, current_app
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 import datetime
@@ -13,14 +13,41 @@ db = client['employee_database']
 employees = db['employees']
 users = db['users']
 
-@employee.route('/read', methods=['GET'])
+def rate_limit_decorator(limit_key):
+    def decorator(func):
+        @jwt_required()
+        def wrapper(*args, **kwargs):
+            current_user = get_jwt_identity()
+            user = current_app.db.users.find_one({'username': current_user})
+            is_admin = user.get('is_admin', False) if user else False
+            
+            # Set rate limits based on role
+            if is_admin:
+                rate_limit = "10/hour"
+            else:
+                rate_limit = "5/hour"
+
+            # Use the determined rate limit
+            return current_app.limiter.limit(rate_limit)(func)(*args, **kwargs)
+        return wrapper
+    return decorator
+
+@employee.route('/read', methods=['GET'], endpoint='employee_list')
+@rate_limit_decorator("employee_list")
 @jwt_required()
 def employee_list():
+    db = current_app.db
+    users = db.users
+    employees = db.employees
+    
     current_user = get_jwt_identity()
     user_is_admin = users.find_one({'username': current_user}).get('is_admin', False)
+    
     employees_data = list(employees.find())
 
     def filter_employee_data(employee, is_admin):
+        # Convert ObjectId to string
+        employee['_id'] = str(employee['_id'])
         if is_admin:
             return employee
         else:
@@ -33,19 +60,12 @@ def employee_list():
 
     filtered_employees_data = [filter_employee_data(emp, user_is_admin) for emp in employees_data]
 
-    for emp in filtered_employees_data:
-        emp['_id'] = str(emp['_id'])
-
-    return jsonify({"employees": filtered_employees_data})
+    return jsonify({"employees": filtered_employees_data}), 200
 
 
-
-@employee.route('/update_employee/<employee_id>', methods=['POST'])
+@employee.route('/update/<employee_id>', methods=['POST'], endpoint='edit_employee')
 @admin_required
 def edit_employee(employee_id):
-    if 'username' not in session or not session.get('is_admin', False):
-        return jsonify({"error": "You do not have permission to access this page."}), 403
-
     data = request.json
     name = data.get('name')
     designation = data.get('designation')
@@ -66,15 +86,11 @@ def edit_employee(employee_id):
         }}
     )
 
-    return jsonify({"message": "Employee details updated successfully."})
+    return jsonify({"message": "Employee details updated successfully."}), 200
 
-
-@employee.route('/create_employee', methods=['POST'], endpoint='create_employee')
+@employee.route('/create', methods=['POST'], endpoint='create_employee')
 @admin_required
 def create_employee():
-    if 'username' not in session or not session.get('is_admin', False):
-        return jsonify({"error": "You do not have permission to access this page."}), 403
-
     data = request.json
     name = data.get('name')
     designation = data.get('designation')
@@ -93,17 +109,16 @@ def create_employee():
     }
 
     result = employees.insert_one(new_employee)
-    return jsonify({"message": "New employee created successfully.", "employee_id": str(result.inserted_id)})
+    return jsonify({"message": "New employee created successfully.", "employee_id": str(result.inserted_id)}), 201
 
-
-@employee.route('/delete_employee/<employee_id>', methods=['POST'],endpoint='delete_employee')
+@employee.route('/delete/<employee_id>', methods=['POST'], endpoint='delete_employee')
 @admin_required
 def delete_employee(employee_id):
     employees.delete_one({'_id': ObjectId(employee_id)})
-    return jsonify({"message": "Employee deleted successfully."})
+    return jsonify({"message": "Employee deleted successfully."}), 200
 
-
-@employee.route('/search_employee', methods=['GET'])
+@employee.route('/search', methods=['GET'], endpoint='search_employee')
+@rate_limit_decorator("search_employee")
 @jwt_required()
 def search_employee():
     current_user = get_jwt_identity()
@@ -126,18 +141,12 @@ def search_employee():
     if department:
         query['department'] = {'$regex': department, '$options': 'i'}
 
-    # Create the aggregation pipeline
-    pipeline = [
-        {'$match': query}
-    ]
-
     # Execute the aggregation pipeline
-    employees_data = list(employees.aggregate(pipeline))
+    employees_data = list(employees.find(query))
 
     # Convert ObjectId to string for JSON serialization
     for emp in employees_data:
         emp['_id'] = str(emp['_id'])
 
-    return jsonify({"employees": employees_data})
-
+    return jsonify({"employees": employees_data}), 200
 

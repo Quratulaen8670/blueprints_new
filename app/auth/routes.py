@@ -4,6 +4,8 @@ import re
 from pymongo import MongoClient
 from .decorators import admin_required
 from flask_jwt_extended import create_access_token
+from flask_jwt_extended import get_jwt_identity
+
 
 auth = Blueprint('auth', __name__)
 
