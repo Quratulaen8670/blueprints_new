@@ -1,9 +1,14 @@
-from flask import Blueprint, request, redirect, url_for, flash, session, jsonify
+from flask import Blueprint, request, session, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 import re
 from pymongo import MongoClient
+from .decorators import admin_required
+from flask_jwt_extended import create_access_token
+from flask_jwt_extended import get_jwt_identity
+
 
 auth = Blueprint('auth', __name__)
+
 
 # Connect to MongoDB
 client = MongoClient('mongodb://localhost:27017/')
@@ -24,16 +29,17 @@ def signin():
 
     user = users.find_one({'$or': [{'username': username_or_email}, {'email': username_or_email}]})
     if user and check_password_hash(user['password'], password):
-        session['username'] = user['username']
-        session['is_admin'] = user.get('is_admin', False)
+        access_token = create_access_token(identity=user['username'])
         response = {
             "message": "Logged in successfully.",
+            "access_token": access_token,
             "username": user['username'],
             "is_admin": user.get('is_admin', False)
         }
         return jsonify(response)
     else:
         return jsonify({"error": "Invalid username/email or password."}), 401
+
 
 
 @auth.route('/SignUp', methods=['POST'])
@@ -72,8 +78,3 @@ def signup():
     return jsonify({"message": "Account created successfully. Please log in."})
 
 
-@auth.route('/admin_dashboard')
-def admin_dashboard():
-    if 'username' not in session or not session.get('is_admin', False):
-        return jsonify({"error": "You do not have permission to access this page."}), 403
-    return jsonify({"message": "Welcome to the admin dashboard."})
